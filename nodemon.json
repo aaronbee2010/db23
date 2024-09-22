@@ -1,0 +1,6 @@
+{
+    "verbose": true,
+    "exec": "node --inspect-wait=0.0.0.0:9229 --require ts-node/register src/index.ts",
+    "ext": "ts,json",
+    "ignore": [ "data/", "dist/", "node_modules/" ]
+}
