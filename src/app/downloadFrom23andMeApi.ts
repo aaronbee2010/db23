@@ -1,10 +1,15 @@
-import * as fs from "fs";
-import * as crypto from "crypto";
-import Accession from "../types/accession";
-import AccessionResponse from "../types/accessionResponse";
+import * as fs from 'fs';
+import * as crypto from 'crypto';
+import { RateLimiterMemory } from 'rate-limiter-flexible';
+import Accession from '../types/accession';
+import AccessionResponse from '../types/accessionResponse';
+import Marker from '../types/marker';
+import MarkerResponse from '../types/markerResponse';
 
 /**
- * TODO: Migrate verification functions to separate class when program is complete.
+ * TODO: Migrate verification functions to separate classes when program is complete i.e. Download/Validate, Accession/Marker etc.
+ *
+ * TODO: Verify checksums of markers and use these to avoid redownloading markers for an accession if a file for said accession already exists and has a valid checksum.
  */
 
 const downloadFrom23andMeApi = async (): Promise<object> => {
@@ -16,41 +21,80 @@ const downloadFrom23andMeApi = async (): Promise<object> => {
     dl.createFoldersIfNotExists();
 
     /**
-     * Check if accessions JSON exists and has a valid checksum. If false, we'll download it then check it's checksum is valid.
-     * 
+     * Check if accessions JSON exists and has a valid checksum. If false, we'll download it then check its checksum is valid.
+     *
      * We'll repeat this download/check procedure a maximum of 5 times. If we fail to download a valid JSON after 5 attempts, we will throw an exception.
      */
     await dl.verifyAndGetAccessions();
 
     /**
      * Start downloading markers for each accession simultaneously.
-     * We don't want to start downloads for all accessions at once or we risk getting our IP tempbanned for sending requests too frequently.
-     * What we'll do in that case is set a 5 second delay between downloads for each accession.
-     * 
-     * For each accession, we'll download a set of 10000 markers at a time. Once all markers for an accession are downloaded, we'll sort the markers for that accession
-     * then write the sorted markers to a JSON file.
+     * The rate limiter will ensure we don't exceed the API's rate limit.
      */
     await dl.getMarkersForAllAccessions();
 
     return dl.getReturnObject();
-}
+};
 
 class Download {
+    private readonly minimumMillisecondsBetweenRequests = 5000; // 20 seconds
+    private rateLimiter: RateLimiterMemory;
+
     private startTimestamp: number = 0;
 
     private returnObject: any = {
         runtimeDurationInSeconds: 0,
-        accessionDownloadAttemptCount: 0
+        accessionDownloadAttemptCount: 0,
     };
 
     private accessions: Accession[] = [];
 
     public constructor() {
-        this.startTimestamp = Math.floor( Date.now() / 1000 );
+        this.startTimestamp = Date.now();
+
+        const durationInSeconds = this.minimumMillisecondsBetweenRequests / 1000;
+
+        this.rateLimiter = new RateLimiterMemory({
+            points: 1, // Number of points
+            duration: durationInSeconds, // Duration in seconds
+        });
+    }
+
+    private async fetchJsonAtCappedRate(link: string): Promise<any> {
+        try {
+            // Consume 1 point before making a request
+            await this.rateLimiter.consume(1);
+
+            const res = await fetch(link);
+
+            if (!res.ok) {
+                throw new Error(`API request failed with status ${res.status}`);
+            }
+
+            return res.json();
+        } catch (rateLimiterRes: any) {
+            if (rateLimiterRes instanceof Error) {
+                // Handle fetch or other errors
+                console.error(`Error fetching data from ${link}:`, rateLimiterRes);
+                throw rateLimiterRes;
+            } else {
+                // RateLimiterRes contains msBeforeNext property
+                const waitTime = rateLimiterRes.msBeforeNext;
+                // console.log(`Rate limit exceeded. Waiting for ${waitTime} ms before retrying.`);
+                await this.delay(waitTime);
+                // Retry after the wait time
+                return this.fetchJsonAtCappedRate(link);
+            }
+        }
+    }
+
+    // Helper method to delay execution
+    private delay(ms: number): Promise<void> {
+        return new Promise((resolve) => setTimeout(resolve, ms));
     }
 
     public createFoldersIfNotExists(): void {
-        const requiredFolders = [ "data/", "data/json/", "data/json/markers/" ];
+        const requiredFolders = ['data/', 'data/json/', 'data/json/markers/'];
 
         for (let folder of requiredFolders) {
             if (!fs.existsSync(folder)) {
@@ -64,66 +108,114 @@ class Download {
 
         while (!this.verifyCurrentAccessionsDownload()) {
             ++this.returnObject.accessionDownloadAttemptCount;
-    
+
             if (this.returnObject.accessionDownloadAttemptCount > maxAccessionDownloadAttemptsAllowed) {
-                throw `Failed to get valid accessions JSON after ${maxAccessionDownloadAttemptsAllowed} attempts.`;
+                throw new Error(`Failed to get valid accessions JSON after ${maxAccessionDownloadAttemptsAllowed} attempts.`);
             }
-    
-            await this.downloadAccessions();  
+
+            await this.downloadAccessions();
         }
 
         this.readAccessionsData();
     }
 
+    public async getMarkersForAllAccessions(): Promise<void> {
+        const downloadPromises = this.accessions.map((accession) => {
+            if (this.verifyExistingMarkersForAccession(accession)) {
+                return Promise.resolve();
+            }
+            return this.getAllMarkersForSpecifiedAccession(accession);
+        });
+
+        await Promise.all(downloadPromises);
+
+        console.log("Finished downloading, sorting and writing markers for all accessions to disc!")
+    }
+
+    private verifyExistingMarkersForAccession(accession: Accession): boolean {
+        // TODO: Verify checksums once you've got downloaded data to compare to.
+        return false;
+    }
+
     private verifyCurrentAccessionsDownload(): boolean {
-        if (!fs.existsSync("data/json/accessions.json")) {
+        if (!fs.existsSync('data/json/accessions.json')) {
             return false;
         }
 
-        const expectedChecksum = "3be7720b22d420fc7af2cbf7933c7257c2319e5bc5fd0422ab608b2a1b5fb80f";
+        const expectedChecksum = '3be7720b22d420fc7af2cbf7933c7257c2319e5bc5fd0422ab608b2a1b5fb80f';
 
-        const data = fs.readFileSync("data/json/accessions.json", "utf-8");
+        const data = fs.readFileSync('data/json/accessions.json', 'utf-8');
 
-        const actualChecksum = crypto.createHash("sha256")
-                                     .update(data)
-                                     .digest("hex");
-        
-        return (expectedChecksum === actualChecksum);
+        const actualChecksum = crypto.createHash('sha256').update(data).digest('hex');
+
+        return expectedChecksum === actualChecksum;
     }
 
     private async downloadAccessions(): Promise<void> {
-        const res = await fetch("https://api.23andme.com/3/accession/");
-        const json: AccessionResponse = await res.json();
+        const json: AccessionResponse = await this.fetchJsonAtCappedRate('https://api.23andme.com/3/accession/');
 
-        fs.writeFileSync("data/json/accessions.json", JSON.stringify(this.accessions));
+        fs.writeFileSync('data/json/accessions.json', JSON.stringify(json.data));
     }
 
     private readAccessionsData(): void {
-        this.accessions = JSON.parse(
-            fs.readFileSync("data/json/accessions.json", "utf-8")
-        );
+        this.accessions = JSON.parse(fs.readFileSync('data/json/accessions.json', 'utf-8'));
     }
 
-    public async getMarkersForAllAccessions(): Promise<void> {
-        for (let accession of this.accessions) {
-            this.getMarkersForSpecifiedAccession(accession, null);
+    private async getAllMarkersForSpecifiedAccession(accession: Accession) {
+        console.log(`Started downloading markers for chromosome ${accession.chromosome}.`);
 
-            await new Promise(res => {
-                setTimeout(res, 5000);
-            });
+        const markers = await this.getSomeMarkersForSpecifiedAccession(accession, null);
+
+        markers.sort(Download.compareMarkers);
+
+        fs.writeFileSync(`data/json/markers/${accession.id}.json`, JSON.stringify(markers));
+
+        console.log(`Successfully saved ${markers.length} markers for chromosome ${accession.chromosome}!`);
+    }
+
+    private async getSomeMarkersForSpecifiedAccession(accession: Accession, link: string | null): Promise<Marker[]> {
+        const limit = 10000;
+        link ??= `https://api.23andme.com/3/marker/?accession_id=${accession.id}&limit=${limit}`;
+
+        const json: MarkerResponse = await this.fetchJsonAtCappedRate(link);
+
+        console.log(`    Downloaded ${json.data.length} markers for chromosome ${accession.chromosome}...`);
+
+        if (json.links.next === null) {
+            return json.data;
+        } else {
+            const nextMarkers = await this.getSomeMarkersForSpecifiedAccession(accession, json.links.next);
+            return json.data.concat(nextMarkers);
         }
-
-        console.log("Done.");
     }
 
-    private async getMarkersForSpecifiedAccession(accession: Accession, link: string | null) {
-        console.log(accession.chromosome);
+    private static compareMarkers(marker1: Marker, marker2: Marker): number {
+        if (marker1.start !== marker2.start) {
+            return marker1.start - marker2.start;
+        } else if (marker1.end !== marker2.end) {
+            return marker1.end - marker2.end;
+        } else {
+            return Download.compareRSIDs(marker1.id, marker2.id);
+        }
+    }
+
+    private static compareRSIDs(rsid1: string, rsid2: string): number {
+        const rsid1Prefix = rsid1.replace(/[0-9]+$/, '');
+        const rsid2Prefix = rsid2.replace(/[0-9]+$/, '');
+        const rsid1Suffix = Number(rsid1.replace(/^(rs|i)/, ''));
+        const rsid2Suffix = Number(rsid2.replace(/^(rs|i)/, ''));
+
+        if (rsid1Prefix !== rsid2Prefix) {
+            return rsid1Prefix === 'rs' ? -1 : 1;
+        } else {
+            return rsid2Suffix - rsid1Suffix;
+        }
     }
 
     public getReturnObject() {
-        const endTimestamp = Math.floor( Date.now() / 1000 );
+        const endTimestamp = Date.now();
 
-        this.returnObject.runtimeDurationInSeconds = (endTimestamp - this.startTimestamp)
+        this.returnObject.runtimeDurationInSeconds = Math.floor((endTimestamp - this.startTimestamp) / 1000);
 
         return this.returnObject;
     }
