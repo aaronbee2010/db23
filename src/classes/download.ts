@@ -7,7 +7,7 @@ import MarkerResponse from '../types/markerResponse';
 import Validate from './validate';
 
 export default class Download {
-    private readonly minimumMillisecondsBetweenRequests = 5000; // 20 seconds
+    private readonly minimumMillisecondsBetweenRequests = 5000;
     private rateLimiter: RateLimiterMemory;
 
     private startTimestamp: number = 0;
