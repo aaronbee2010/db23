@@ -1,16 +1,15 @@
 {
-    "devDependencies": {
-        "@types/express": "^4.17.21",
-        "@types/node": "^22.5.5",
-        "nodemon": "^3.1.7",
-        "ts-node": "^10.9.2",
-        "typescript": "^5.6.2"
-    },
-    "dependencies": {
-        "express": "^5.0.0",
-        "rate-limiter-flexible": "^5.0.3"
-    },
-    "scripts": {
-        "debug": "nodemon"
-    }
+  "private": true,
+  "scripts": {
+    "build": "nitro build",
+    "dev": "nitro dev",
+    "prepare": "nitro prepare",
+    "preview": "node .output/server/index.mjs"
+  },
+  "devDependencies": {
+    "nitropack": "latest"
+  },
+  "dependencies": {
+    "rate-limiter-flexible": "^5.0.3"
+  }
 }

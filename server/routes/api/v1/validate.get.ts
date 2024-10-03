@@ -1,6 +1,11 @@
-import Validate from "../classes/validate";
+import Validate from "~/utils/classes/validate";
 
-const validateDownloadedFiles = () => {
+export default defineEventHandler(() => {
+    const res: {success: boolean, data: object} = {
+        success: false,
+        data: {}
+    };
+
     const returnObject: { accession: boolean, markers: Record<string, boolean> } = {
         accession: false,
         markers: {
@@ -32,13 +37,21 @@ const validateDownloadedFiles = () => {
         }
     };
 
-    returnObject.accession = Validate.validateAccessionDownload();
+    try
+    {
+        returnObject.accession = Validate.validateAccessionDownload();
 
-    for (let accessionID in Validate.checksums.markers) {
-        returnObject.markers[accessionID] = Validate.validateMarkersForAccession(accessionID);
+        for (let accessionID in Validate.checksums.markers) {
+            returnObject.markers[accessionID] = Validate.validateMarkersForAccession(accessionID);
+        }
+    }
+    catch
+    {
+
     }
 
-    return returnObject;
-}
+    res.success = true;
+    res.data = returnObject;
 
-export default validateDownloadedFiles;
+    return res;
+});

@@ -2,11 +2,20 @@
     "version": "0.2.0",
     "configurations": [
         {
-            "name": "Debug Nodemon",
             "type": "node",
-            "request": "attach",
+            "request": "launch",
+            "name": "Debug Nitro",
+            "runtimeExecutable": "${workspaceFolder}/node_modules/.bin/nitropack",
+            "runtimeArgs": [
+                "dev"
+            ],
+            "port": 9229,
+            "outputCapture": "std",
             "restart": true,
-            "port": 9229
+            "console": "integratedTerminal",
+            "skipFiles": [
+                "<node_internals>/**"
+            ]
         }
     ]
 }

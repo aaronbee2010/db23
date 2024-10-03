@@ -115,7 +115,7 @@ export default class Download {
     }
 
     private async getAllMarkersForSpecifiedAccession(accession: Accession) {
-        console.log(`Started downloading markers for chromosome ${accession.chromosome}.`);
+        console.log(`Started downloading markers for chromosome ${accession.chromosome}`);
 
         const markers = await this.getSomeMarkersForSpecifiedAccession(accession, null);
 
