@@ -4,9 +4,18 @@
     "build": "nitro build",
     "dev": "nitro dev",
     "prepare": "nitro prepare",
-    "preview": "node .output/server/index.mjs"
+    "preview": "node .output/server/index.mjs",
+    "test": "vitest"
   },
   "devDependencies": {
-    "nitropack": "latest"
+    "@types/jest": "^29.5.14",
+    "@vitest/coverage-v8": "^2.1.3",
+    "memfs": "^4.14.0",
+    "msw": "^2.5.2",
+    "nitropack": "latest",
+    "vitest": "^2.1.3"
+  },
+  "dependencies": {
+    "ajv": "^8.17.1"
   }
 }
